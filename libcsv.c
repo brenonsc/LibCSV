@@ -3,111 +3,205 @@
 #include <string.h>
 #include "libcsv.h"
 
-char **splitString(const char *str, const char *delimiter, int *count) {
-    char *strCopy = strdup(str);
-    if (strCopy == NULL) {
-        perror("Erro de alocação de memória");
-        exit(EXIT_FAILURE);
-    }
+#define MAX_COLUMNS 256
+#define MAX_LINE_LENGTH 1024
 
-    int capacity = 10;
-    char **result = malloc(capacity * sizeof(char *));
-    if (result == NULL) {
-        perror("Erro de alocação de memória");
-        exit(EXIT_FAILURE);
-    }
+typedef struct {
+    char *header;
+    int columnIndex;
+    char comparator;
+    char *value;
+} Filter;
 
-    *count = 0;
-    char *token = strtok(strCopy, delimiter);
-    while (token != NULL) {
-        if (*count >= capacity) {
-            capacity *= 2;
-            char **temp = realloc(result, capacity * sizeof(char *));
-            if (temp == NULL) {
-                perror("Erro de realocação de memória");
-                exit(EXIT_FAILURE);
-            }
-            result = temp;
-        }
-        result[*count] = strdup(token);
-        if (result[*count] == NULL) {
-            perror("Erro de alocação de memória");
-            exit(EXIT_FAILURE);
-        }
-        (*count)++;
-        token = strtok(NULL, delimiter);
-    }
-    free(strCopy);
-    return result;
-}
+void parseFilters(const char *filterDefs, Filter *filters, int *filterCount);
+int parseSelectedColumns(const char *selectedCols, char **columns);
+void filterAndPrintCsv(char *csv, char **selectedColumns, int selectedColumnCount, Filter *filters, int filterCount);
+int applyFilter(char **row, Filter *filters, int filterCount, char **headers, int headerCount);
+int compare(const char *a, const char *b, char comparator);
 
-int applyFilters(char **headers, char **row, int columnCount, const char *rowFilterDefinitions) {
-    int filterCount;
-    char **filters = splitString(rowFilterDefinitions, "\n", &filterCount);
-
-    for (int i = 0; i < filterCount; i++) {
-        char *filter = strdup(filters[i]);
-        if (filter == NULL) {
-            perror("Erro de alocação de memória");
-            exit(EXIT_FAILURE);
-        }
-
-        char *header = strtok(filter, "=><");
-        char *operator = filter + strlen(header);
-        while (*operator != '=' && *operator != '>' && *operator != '<') {
-            operator++;
-        }
-        char op = *operator;
-        char *value = operator + 1;
-        *operator = '\0';
-
-        int columnIndex = -1;
-        for (int j = 0; j < columnCount; j++) {
-            if (strcmp(headers[j], header) == 0) {
-                columnIndex = j;
-                break;
-            }
-        }
-        if (columnIndex == -1) {
-            free(filter);
-            continue;
-        }
-
-        int comparison = strcmp(row[columnIndex], value);
-        if ((op == '=' && comparison != 0) ||
-            (op == '>' && comparison <= 0) ||
-            (op == '<' && comparison >= 0)) {
-            free(filter);
-            return 0;
-        }
-        free(filter);
-    }
-
-    free(filters);
-    return 1;
-}
-
-void processCsv(const char csv[], const char selectedColumns[], const char rowFilterDefinitions[]) {
-    int lineCount;
-    char **lines = splitString(csv, "\n", &lineCount);
-
-    if (lineCount == 0) {
+void processCsv(const char csv[], const char selectedColumns[], const char filterDefs[]) {
+    char *csvCopy = strdup(csv);
+    if (!csvCopy) {
+        perror("Falha ao alocar memória");
         return;
     }
 
-    int columnCount;
-    char **headers = splitString(lines[0], ",", &columnCount);
+    Filter filters[MAX_COLUMNS];
+    int filterCount = 0;
+    parseFilters(filterDefs, filters, &filterCount);
 
-    int selectedColumnCount;
-    char **selectedColumnsArray = splitString(selectedColumns, ",", &selectedColumnCount);
+    char *selectedColumnsArray[MAX_COLUMNS];
+    int selectedColumnCount = parseSelectedColumns(selectedColumns, selectedColumnsArray);
+    filterAndPrintCsv(csvCopy, selectedColumnsArray, selectedColumnCount, filters, filterCount);
 
-    if (selectedColumnCount == 1 && selectedColumnsArray[0][0] == '\0') {
-        selectedColumnCount = columnCount;
-        selectedColumnsArray = headers;
+    free(csvCopy);
+}
+
+void parseFilters(const char *filterDefs, Filter *filters, int *filterCount) {
+    char *defsCopy = strdup(filterDefs);
+    if (!defsCopy) {
+        perror("Falha ao alocar memória");
+        return;
+    }
+
+    char *currentPos = defsCopy;
+    char *nextLine = strchr(currentPos, '\n');
+    while (currentPos) {
+        if (nextLine) {
+            *nextLine = '\0';
+        }
+
+        char *headerEnd = strpbrk(currentPos, "><=");
+        if (!headerEnd) {
+            fprintf(stderr, "Nenhum comparador encontrado\n");
+            break;
+        }
+
+        size_t headerLen = headerEnd - currentPos;
+        char *header = (char *)malloc(headerLen + 1);
+        if (!header) {
+            perror("Falha ao alocar memória para o cabeçalho");
+            break;
+        }
+        strncpy(header, currentPos, headerLen);
+        header[headerLen] = '\0';
+
+        char comparator = *headerEnd;
+        if (comparator != '>' && comparator != '<' && comparator != '=') {
+            fprintf(stderr, "Comparador inválido: '%c'\n", comparator);
+            free(header);
+            currentPos = nextLine ? nextLine + 1 : NULL;
+            nextLine = currentPos ? strchr(currentPos, '\n') : NULL;
+            continue;
+        }
+
+        char *value = headerEnd + 1;
+        if (!value || *value == '\0') {
+            fprintf(stderr, "Erro ao analisar valor\n");
+            free(header);
+            break;
+        }
+
+        filters[*filterCount].header = header;
+        filters[*filterCount].comparator = comparator;
+        filters[*filterCount].value = strdup(value);
+
+        if (!filters[*filterCount].header || !filters[*filterCount].value) {
+            fprintf(stderr, "Falha na alocação de memória\n");
+            break;
+        }
+
+        (*filterCount)++;
+        currentPos = nextLine ? nextLine + 1 : NULL;
+        nextLine = currentPos ? strchr(currentPos, '\n') : NULL;
+    }
+
+    free(defsCopy);
+}
+
+int parseSelectedColumns(const char *selectedCols, char **columns) {
+    if (!selectedCols || *selectedCols == '\0') {
+        return 0;
+    }
+
+    int count = 0;
+    char *colsCopy = strdup(selectedCols);
+    if (!colsCopy) {
+        perror("Falha ao alocar memória");
+        return 0;
+    }
+
+    char *start = colsCopy;
+    char *end = strchr(start, ',');
+    while (start) {
+        if (end) {
+            *end = '\0';
+        }
+
+        columns[count] = (char *)malloc(strlen(start) + 1);
+        if (!columns[count]) {
+            perror("Falha ao alocar memória para coluna");
+            free(colsCopy);
+            return count;
+        }
+        strcpy(columns[count], start);
+        count++;
+
+        start = end ? end + 1 : NULL;
+        end = start ? strchr(start, ',') : NULL;
+    }
+
+    free(colsCopy);
+    return count;
+}
+
+int applyFilter(char **row, Filter *filters, int filterCount, char **headers, int headerCount) {
+    for (int i = 0; i < filterCount; i++) {
+        int colIndex = -1;
+
+        for (int j = 0; j < headerCount; j++) {
+            if (strcmp(headers[j], filters[i].header) == 0) {
+                colIndex = j;
+                break;
+            }
+        }
+
+        if (colIndex < 0) {
+            fprintf(stderr, "Índice de coluna inválido %d\n", colIndex);
+            return 0;
+        }
+
+        char *cellValue = row[colIndex];
+        if (!cellValue) {
+            fprintf(stderr, "Valor nulo na linha do índice de coluna %d\n", colIndex);
+            return 0;
+        }
+
+        if (!compare(cellValue, filters[i].value, filters[i].comparator)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+void filterAndPrintCsv(char *csv, char **selectedColumns, int selectedColumnCount, Filter *filters, int filterCount) {
+    char *lines[MAX_LINE_LENGTH];
+    int lineCount = 0;
+
+    char *line = strtok(csv, "\n");
+    while (line) {
+        lines[lineCount++] = line;
+        line = strtok(NULL, "\n");
+    }
+
+    char *headers[MAX_COLUMNS];
+    int headerCount = 0;
+    char *headerLine = strdup(lines[0]);
+    char *header = strtok(headerLine, ",");
+    while (header) {
+        headers[headerCount++] = header;
+        header = strtok(NULL, ",");
+    }
+
+    int selectedIndices[MAX_COLUMNS];
+    if (selectedColumnCount > 0) {
+        for (int i = 0; i < selectedColumnCount; i++) {
+            for (int j = 0; j < headerCount; j++) {
+                if (strcmp(selectedColumns[i], headers[j]) == 0) {
+                    selectedIndices[i] = j;
+                    break;
+                }
+            }
+        }
+    } else {
+        for (int i = 0; i < headerCount; i++) {
+            selectedIndices[i] = i;
+        }
+        selectedColumnCount = headerCount;
     }
 
     for (int i = 0; i < selectedColumnCount; i++) {
-        printf("%s", selectedColumnsArray[i]);
+        printf("%s", headers[selectedIndices[i]]);
         if (i < selectedColumnCount - 1) {
             printf(",");
         }
@@ -115,69 +209,67 @@ void processCsv(const char csv[], const char selectedColumns[], const char rowFi
     printf("\n");
 
     for (int i = 1; i < lineCount; i++) {
-        char **row = splitString(lines[i], ",", &columnCount);
-        if (applyFilters(headers, row, columnCount, rowFilterDefinitions)) {
+        char *row[MAX_COLUMNS];
+        int colIndex = 0;
+        char *token = strtok(lines[i], ",");
+        while (token) {
+            row[colIndex++] = token;
+            token = strtok(NULL, ",");
+        }
+
+        if (applyFilter(row, filters, filterCount, headers, headerCount)) {
             for (int j = 0; j < selectedColumnCount; j++) {
-                for (int k = 0; k < columnCount; k++) {
-                    if (strcmp(headers[k], selectedColumnsArray[j]) == 0) {
-                        printf("%s", row[k]);
-                        if (j < selectedColumnCount - 1) {
-                            printf(",");
-                        }
-                        break;
-                    }
+                printf("%s", row[selectedIndices[j]]);
+                if (j < selectedColumnCount - 1) {
+                    printf(",");
                 }
             }
             printf("\n");
         }
-        for (int j = 0; j < columnCount; j++) {
-            free(row[j]);
-        }
-        free(row);
     }
 
-    for (int i = 0; i < lineCount; i++) {
-        free(lines[i]);
-    }
-    free(lines);
-
-    if (selectedColumnsArray != headers) {
-        for (int i = 0; i < selectedColumnCount; i++) {
-            free(selectedColumnsArray[i]);
-        }
-    }
-    free(selectedColumnsArray);
-
-    for (int i = 0; i < columnCount; i++) {
-        free(headers[i]);
-    }
-    free(headers);
+    free(headerLine);
 }
 
-void processCsvFile(const char csvFilePath[], const char selectedColumns[], const char rowFilterDefinitions[]) {
+int compare(const char *a, const char *b, char comparator) {
+    if (!a || !b) {
+        fprintf(stderr, "Uma das strings é nula.\n");
+        return 0;
+    }
+
+    int cmp = strcmp(a, b);
+    switch (comparator) {
+        case '>': return cmp > 0;
+        case '<': return cmp < 0;
+        case '=': return cmp == 0;
+        default:
+            fprintf(stderr, "Comparador inválido '%c'.\n", comparator);
+            return 0;
+    }
+}
+
+void processCsvFile(const char csvFilePath[], const char selectedColumns[], const char filterDefs[]) {
     FILE *file = fopen(csvFilePath, "r");
-    if (file == NULL) {
-        perror("Erro ao abrir o arquivo CSV");
+    if (!file) {
+        perror("Falha ao abrir arquivo");
         return;
     }
 
     fseek(file, 0, SEEK_END);
     long fileSize = ftell(file);
-    rewind(file);
+    fseek(file, 0, SEEK_SET);
 
     char *csvData = (char *)malloc(fileSize + 1);
-    if (csvData == NULL) {
-        perror("Erro de alocação de memória");
+    if (!csvData) {
+        perror("Falha ao alocar memória");
         fclose(file);
         return;
     }
 
     fread(csvData, 1, fileSize, file);
     csvData[fileSize] = '\0';
-
     fclose(file);
-    
-    processCsv(csvData, selectedColumns, rowFilterDefinitions);
 
+    processCsv(csvData, selectedColumns, filterDefs);
     free(csvData);
 }

@@ -9,5 +9,3 @@ gcc -c main.c -o main.o
 
 # Linka os objetos e cria o executável
 gcc libcsv.o main.o -o app
-
-echo "Build completo. Execute com ./app"
