@@ -61,7 +61,7 @@ void parseFilters(const char *filterDefs, Filter *filters, int *filterCount) {
 
         char comparator = *headerEnd;
         if (comparator != '>' && comparator != '<' && comparator != '=') {
-            fprintf(stderr, "Invalid filter: '%s'\n", currentPos);
+            fprintf(stderr, "Filtro inválido: '%s'\n", currentPos);
             currentPos = nextLine ? nextLine + 1 : NULL;
             nextLine = currentPos ? strchr(currentPos, '\n') : NULL;
             continue;
@@ -104,7 +104,7 @@ void parseFilters(const char *filterDefs, Filter *filters, int *filterCount) {
 
 int parseSelectedColumns(const char *selectedCols, char **columns) {
     if (!selectedCols || *selectedCols == '\0') {
-        return 0;
+        return -1;
     }
 
     int count = 0;
@@ -184,6 +184,13 @@ void filterAndPrintCsv(char *csv, char **selectedColumns, int selectedColumnCoun
     while (header) {
         headers[headerCount++] = header;
         header = strtok(NULL, ",");
+    }
+
+    if (selectedColumnCount == -1) {
+        selectedColumnCount = headerCount;
+        for (int i = 0; i < headerCount; i++) {
+            selectedColumns[i] = headers[i];
+        }
     }
 
     for (int i = 0; i < selectedColumnCount; i++) {
