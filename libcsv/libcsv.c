@@ -53,8 +53,18 @@ void parseFilters(const char *filterDefs, Filter *filters, int *filterCount) {
 
         char *headerEnd = strpbrk(currentPos, "><=");
         if (!headerEnd) {
-            fprintf(stderr, "Nenhum comparador encontrado\n");
-            break;
+            fprintf(stderr, "Filtro inválido: '%s'\n", currentPos);
+            currentPos = nextLine ? nextLine + 1 : NULL;
+            nextLine = currentPos ? strchr(currentPos, '\n') : NULL;
+            continue;
+        }
+
+        char comparator = *headerEnd;
+        if (comparator != '>' && comparator != '<' && comparator != '=') {
+            fprintf(stderr, "Invalid filter: '%s'\n", currentPos);
+            currentPos = nextLine ? nextLine + 1 : NULL;
+            nextLine = currentPos ? strchr(currentPos, '\n') : NULL;
+            continue;
         }
 
         size_t headerLen = headerEnd - currentPos;
@@ -66,28 +76,21 @@ void parseFilters(const char *filterDefs, Filter *filters, int *filterCount) {
         strncpy(header, currentPos, headerLen);
         header[headerLen] = '\0';
 
-        char comparator = *headerEnd;
-        if (comparator != '>' && comparator != '<' && comparator != '=') {
-            fprintf(stderr, "Comparador inválido: '%c'\n", comparator);
+        char *value = headerEnd + 1;
+        if (!value || *value == '\0') {
+            fprintf(stderr, "Filtro inválido: '%s'\n", currentPos);
             free(header);
             currentPos = nextLine ? nextLine + 1 : NULL;
             nextLine = currentPos ? strchr(currentPos, '\n') : NULL;
             continue;
         }
 
-        char *value = headerEnd + 1;
-        if (!value || *value == '\0') {
-            fprintf(stderr, "Erro ao analisar valor\n");
-            free(header);
-            break;
-        }
-
         filters[*filterCount].header = header;
         filters[*filterCount].comparator = comparator;
         filters[*filterCount].value = strdup(value);
-
-        if (!filters[*filterCount].header || !filters[*filterCount].value) {
+        if (!filters[*filterCount].value) {
             fprintf(stderr, "Falha na alocação de memória\n");
+            free(header);
             break;
         }
 
