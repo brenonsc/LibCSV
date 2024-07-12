@@ -147,8 +147,8 @@ int applyFilter(char **row, Filter *filters, int filterCount, char **headers, in
         }
 
         if (colIndex < 0) {
-            fprintf(stderr, "Índice de coluna inválido %d\n", colIndex);
-            return 0;
+            fprintf(stderr, "Coluna especificada no filtro inválida.");
+            exit(EXIT_FAILURE);
         }
 
         char *cellValue = row[colIndex];
@@ -183,27 +183,41 @@ void filterAndPrintCsv(char *csv, char **selectedColumns, int selectedColumnCoun
         header = strtok(NULL, ",");
     }
 
-    int selectedIndices[MAX_COLUMNS];
-    if (selectedColumnCount > 0) {
-        for (int i = 0; i < selectedColumnCount; i++) {
-            for (int j = 0; j < headerCount; j++) {
-                if (strcmp(selectedColumns[i], headers[j]) == 0) {
-                    selectedIndices[i] = j;
-                    break;
-                }
+    for (int i = 0; i < selectedColumnCount; i++) {
+        int exists = 0;
+        for (int j = 0; j < headerCount; j++) {
+            if (strcmp(selectedColumns[i], headers[j]) == 0) {
+                exists = 1;
+                break;
             }
         }
-    } else {
-        for (int i = 0; i < headerCount; i++) {
-            selectedIndices[i] = i;
+        if (!exists) {
+            fprintf(stderr, "A coluna selecionada '%s' não existe no CSV.\n", selectedColumns[i]);
+            free(headerLine);
+            exit(EXIT_FAILURE);
         }
-        selectedColumnCount = headerCount;
     }
 
+    int selectedIndices[MAX_COLUMNS];
+    int selectedColumnsOrder[MAX_COLUMNS];
+    memset(selectedColumnsOrder, -1, sizeof(selectedColumnsOrder));
+
     for (int i = 0; i < selectedColumnCount; i++) {
-        printf("%s", headers[selectedIndices[i]]);
-        if (i < selectedColumnCount - 1) {
-            printf(",");
+        for (int j = 0; j < headerCount; j++) {
+            if (strcmp(selectedColumns[i], headers[j]) == 0) {
+                selectedIndices[i] = j;
+                selectedColumnsOrder[j] = i;
+                break;
+            }
+        }
+    }
+
+    for (int i = 0; i < headerCount; i++) {
+        if (selectedColumnsOrder[i] != -1) {
+            printf("%s", headers[i]);
+            if (i < headerCount - 1) {
+                printf(",");
+            }
         }
     }
     printf("\n");
@@ -218,10 +232,12 @@ void filterAndPrintCsv(char *csv, char **selectedColumns, int selectedColumnCoun
         }
 
         if (applyFilter(row, filters, filterCount, headers, headerCount)) {
-            for (int j = 0; j < selectedColumnCount; j++) {
-                printf("%s", row[selectedIndices[j]]);
-                if (j < selectedColumnCount - 1) {
-                    printf(",");
+            for (int j = 0; j < headerCount; j++) {
+                if (selectedColumnsOrder[j] != -1) {
+                    printf("%s", row[j]);
+                    if (j < headerCount - 1) {
+                        printf(",");
+                    }
                 }
             }
             printf("\n");
