@@ -28,7 +28,10 @@ void processCsv(const char csv[], const char selectedColumns[], const char filte
 
     Filter filters[MAX_COLUMNS];
     int filterCount = 0;
-    parseFilters(filterDefs, filters, &filterCount);
+
+    if (filterDefs && *filterDefs != '\0') {
+        parseFilters(filterDefs, filters, &filterCount);
+    }
 
     char *selectedColumnsArray[MAX_COLUMNS];
     int selectedColumnCount = parseSelectedColumns(selectedColumns, selectedColumnsArray);
