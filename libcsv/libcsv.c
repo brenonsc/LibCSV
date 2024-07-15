@@ -5,18 +5,21 @@
 
 #define MAX_COLUMNS 256
 #define MAX_LINE_LENGTH 1024
+#define MAX_FILTERS_PER_COLUMN 10
 
 typedef struct {
     char *header;
-    int columnIndex;
-    char comparator;
-    char *value;
-} Filter;
+    int filterCount;
+    struct {
+        char comparator;
+        char *value;
+    } filters[MAX_FILTERS_PER_COLUMN];
+} FilterGroup;
 
-void parseFilters(const char *filterDefs, Filter *filters, int *filterCount);
+void parseFilters(const char *filterDefs, FilterGroup *filterGroups, int *filterGroupCount);
 int parseSelectedColumns(const char *selectedCols, char **columns);
-void filterAndPrintCsv(char *csv, char **selectedColumns, int selectedColumnCount, Filter *filters, int filterCount);
-int applyFilter(char **row, Filter *filters, int filterCount, char **headers, int headerCount);
+void filterAndPrintCsv(char *csv, char **selectedColumns, int selectedColumnCount, FilterGroup *filterGroups, int filterGroupCount);
+int applyFilter(char **row, FilterGroup *filterGroups, int filterGroupCount, char **headers, int headerCount);
 int compare(const char *a, const char *b, char comparator);
 
 void processCsv(const char csv[], const char selectedColumns[], const char filterDefs[]) {
@@ -26,21 +29,21 @@ void processCsv(const char csv[], const char selectedColumns[], const char filte
         return;
     }
 
-    Filter filters[MAX_COLUMNS];
-    int filterCount = 0;
+    FilterGroup filterGroups[MAX_COLUMNS];
+    int filterGroupCount = 0;
 
     if (filterDefs && *filterDefs != '\0') {
-        parseFilters(filterDefs, filters, &filterCount);
+        parseFilters(filterDefs, filterGroups, &filterGroupCount);
     }
 
     char *selectedColumnsArray[MAX_COLUMNS];
     int selectedColumnCount = parseSelectedColumns(selectedColumns, selectedColumnsArray);
-    filterAndPrintCsv(csvCopy, selectedColumnsArray, selectedColumnCount, filters, filterCount);
+    filterAndPrintCsv(csvCopy, selectedColumnsArray, selectedColumnCount, filterGroups, filterGroupCount);
 
     free(csvCopy);
 }
 
-void parseFilters(const char *filterDefs, Filter *filters, int *filterCount) {
+void parseFilters(const char *filterDefs, FilterGroup *filterGroups, int *filterGroupCount) {
     char *defsCopy = strdup(filterDefs);
     if (!defsCopy) {
         perror("Falha ao alocar memória");
@@ -88,16 +91,25 @@ void parseFilters(const char *filterDefs, Filter *filters, int *filterCount) {
             continue;
         }
 
-        filters[*filterCount].header = header;
-        filters[*filterCount].comparator = comparator;
-        filters[*filterCount].value = strdup(value);
-        if (!filters[*filterCount].value) {
-            fprintf(stderr, "Falha na alocação de memória\n");
-            free(header);
-            break;
+        int found = 0;
+        for (int i = 0; i < *filterGroupCount; i++) {
+            if (strcmp(filterGroups[i].header, header) == 0) {
+                filterGroups[i].filters[filterGroups[i].filterCount].comparator = comparator;
+                filterGroups[i].filters[filterGroups[i].filterCount].value = strdup(value);
+                filterGroups[i].filterCount++;
+                found = 1;
+                break;
+            }
         }
 
-        (*filterCount)++;
+        if (!found) {
+            filterGroups[*filterGroupCount].header = header;
+            filterGroups[*filterGroupCount].filters[0].comparator = comparator;
+            filterGroups[*filterGroupCount].filters[0].value = strdup(value);
+            filterGroups[*filterGroupCount].filterCount = 1;
+            (*filterGroupCount)++;
+        }
+
         currentPos = nextLine ? nextLine + 1 : NULL;
         nextLine = currentPos ? strchr(currentPos, '\n') : NULL;
     }
@@ -141,12 +153,12 @@ int parseSelectedColumns(const char *selectedCols, char **columns) {
     return count;
 }
 
-int applyFilter(char **row, Filter *filters, int filterCount, char **headers, int headerCount) {
-    for (int i = 0; i < filterCount; i++) {
+int applyFilter(char **row, FilterGroup *filterGroups, int filterGroupCount, char **headers, int headerCount) {
+    for (int i = 0; i < filterGroupCount; i++) {
         int colIndex = -1;
 
         for (int j = 0; j < headerCount; j++) {
-            if (strcmp(headers[j], filters[i].header) == 0) {
+            if (strcmp(headers[j], filterGroups[i].header) == 0) {
                 colIndex = j;
                 break;
             }
@@ -163,14 +175,22 @@ int applyFilter(char **row, Filter *filters, int filterCount, char **headers, in
             return 0;
         }
 
-        if (!compare(cellValue, filters[i].value, filters[i].comparator)) {
+        int match = 0;
+        for (int k = 0; k < filterGroups[i].filterCount; k++) {
+            if (compare(cellValue, filterGroups[i].filters[k].value, filterGroups[i].filters[k].comparator)) {
+                match = 1;
+                break;
+            }
+        }
+
+        if (!match) {
             return 0;
         }
     }
     return 1;
 }
 
-void filterAndPrintCsv(char *csv, char **selectedColumns, int selectedColumnCount, Filter *filters, int filterCount) {
+void filterAndPrintCsv(char *csv, char **selectedColumns, int selectedColumnCount, FilterGroup *filterGroups, int filterGroupCount) {
     char *lines[MAX_LINE_LENGTH];
     int lineCount = 0;
 
@@ -215,11 +235,11 @@ void filterAndPrintCsv(char *csv, char **selectedColumns, int selectedColumnCoun
     int selectedColumnsOrder[MAX_COLUMNS];
     memset(selectedColumnsOrder, -1, sizeof(selectedColumnsOrder));
 
-    for (int i = 0; i < selectedColumnCount; i++) {
-        for (int j = 0; j < headerCount; j++) {
-            if (strcmp(selectedColumns[i], headers[j]) == 0) {
-                selectedIndices[i] = j;
-                selectedColumnsOrder[j] = i;
+    for (int i = 0; i < headerCount; i++) {
+        for (int j = 0; j < selectedColumnCount; j++) {
+            if (strcmp(headers[i], selectedColumns[j]) == 0) {
+                selectedIndices[j] = i;
+                selectedColumnsOrder[i] = j;
                 break;
             }
         }
@@ -244,7 +264,7 @@ void filterAndPrintCsv(char *csv, char **selectedColumns, int selectedColumnCoun
             token = strtok(NULL, ",");
         }
 
-        if (applyFilter(row, filters, filterCount, headers, headerCount)) {
+        if (applyFilter(row, filterGroups, filterGroupCount, headers, headerCount)) {
             for (int j = 0; j < headerCount; j++) {
                 if (selectedColumnsOrder[j] != -1) {
                     printf("%s", row[j]);
@@ -261,18 +281,14 @@ void filterAndPrintCsv(char *csv, char **selectedColumns, int selectedColumnCoun
 }
 
 int compare(const char *a, const char *b, char comparator) {
-    if (!a || !b) {
-        fprintf(stderr, "Uma das strings é nula.\n");
-        return 0;
-    }
-
-    int cmp = strcmp(a, b);
     switch (comparator) {
-        case '>': return cmp > 0;
-        case '<': return cmp < 0;
-        case '=': return cmp == 0;
+        case '=':
+            return strcmp(a, b) == 0;
+        case '>':
+            return strcmp(a, b) > 0;
+        case '<':
+            return strcmp(a, b) < 0;
         default:
-            fprintf(stderr, "Comparador inválido '%c'.\n", comparator);
             return 0;
     }
 }

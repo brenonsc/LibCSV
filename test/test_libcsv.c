@@ -181,6 +181,38 @@ void test_processCsv_selectedFilters_arbitrary_order(void) {
     fclose(result);
 }
 
+void test_processCsv_accepts_more_than_one_filter_per_column(void) {
+    const char csv[] = "header1,header2,header3\n1,2,3\n4,5,6\n7,8,9";
+    const char selectedColumns[] = "";
+    const char filterDefs[] = "header1=1\nheader1=4\nheader2>3\nheader3>4";
+
+    FILE *output = freopen("output_processCsv_accepts_more_than_one_filter_per_column.txt", "w", stdout);
+    if (!output) {
+        CU_FAIL("Failed to redirect stdout");
+        return;
+    }
+
+    processCsv(csv, selectedColumns, filterDefs);
+
+    freopen("/dev/tty", "w", stdout);
+    fclose(output);
+
+    FILE *result = fopen("output_processCsv_accepts_more_than_one_filter_per_column.txt", "r");
+    if (!result) {
+        CU_FAIL("Failed to open output file");
+        return;
+    }
+
+    char buffer[1024];
+    fgets(buffer, sizeof(buffer), result);
+    CU_ASSERT_STRING_EQUAL(buffer, "header1,header2,header3\n");
+
+    fgets(buffer, sizeof(buffer), result);
+    CU_ASSERT_STRING_EQUAL(buffer, "4,5,6\n");
+
+    fclose(result);
+}
+
 int main() {
     CU_pSuite pSuite = NULL;
 
@@ -198,7 +230,8 @@ int main() {
         (NULL == CU_add_test(pSuite, "Teste de processCsvFile", test_processCsvFile)) ||
         (NULL == CU_add_test(pSuite, "Teste ignorando aspas", test_processCsv_ignore_quotes)) ||
         (NULL == CU_add_test(pSuite, "Teste de seleção de colunas em ordem arbitrária", test_processCsv_selectedColumns_arbitrary_order)) ||
-        (NULL == CU_add_test(pSuite, "Teste de seleção de filtros em ordem arbitrária", test_processCsv_selectedFilters_arbitrary_order))) {
+        (NULL == CU_add_test(pSuite, "Teste de seleção de filtros em ordem arbitrária", test_processCsv_selectedFilters_arbitrary_order)) ||
+        (NULL == CU_add_test(pSuite, "Teste de aceitação de mais de um filtro por coluna", test_processCsv_accepts_more_than_one_filter_per_column))) {
         CU_cleanup_registry();
         return CU_get_error();
     }
