@@ -249,7 +249,11 @@ void filterAndPrintCsv(char *csv, char **selectedColumns, int selectedColumnCoun
     for (int i = 0; i < headerCount; i++) {
         if (selectedColumnsOrder[i] != -1) {
             printf("%s", headers[i]);
-            if (i < headerCount - 1) {
+            int nextHeader = i + 1;
+            while (nextHeader < headerCount && selectedColumnsOrder[nextHeader] == -1) {
+                nextHeader++;
+            }
+            if (nextHeader < headerCount) {
                 printf(",");
             }
         }
@@ -269,7 +273,11 @@ void filterAndPrintCsv(char *csv, char **selectedColumns, int selectedColumnCoun
             for (int j = 0; j < headerCount; j++) {
                 if (selectedColumnsOrder[j] != -1) {
                     printf("%s", row[j]);
-                    if (j < headerCount - 1) {
+                    int nextData = j + 1;
+                    while (nextData < headerCount && selectedColumnsOrder[nextData] == -1) {
+                        nextData++;
+                    }
+                    if (nextData < headerCount) {
                         printf(",");
                     }
                 }
