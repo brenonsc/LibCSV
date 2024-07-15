@@ -34,10 +34,10 @@ void test_processCsv(void) {
     }
 
     char buffer[1024];
-    fgets(buffer, sizeof(buffer), result); // Headers
+    fgets(buffer, sizeof(buffer), result);
     CU_ASSERT_STRING_EQUAL(buffer, "header1,header3\n");
 
-    fgets(buffer, sizeof(buffer), result); // First data row
+    fgets(buffer, sizeof(buffer), result);
     CU_ASSERT_STRING_EQUAL(buffer, "4,6\n");
 
     fclose(result);
@@ -213,6 +213,38 @@ void test_processCsv_accepts_more_than_one_filter_per_column(void) {
     fclose(result);
 }
 
+void test_processCsv_accepts_different_equal_or_greater_less_than_operators(void) {
+    const char csv[] = "header1,header2,header3\n1,2,3\n4,5,6\n7,8,9";
+    const char selectedColumns[] = "";
+    const char filterDefs[] = "header1!=2\nheader2>=5\nheader3<=6";
+
+    FILE *output = freopen("output_processCsv_accepts_different_equal_or_greater_less_than_operators.txt", "w", stdout);
+    if (!output) {
+        CU_FAIL("Failed to redirect stdout");
+        return;
+    }
+
+    processCsv(csv, selectedColumns, filterDefs);
+
+    freopen("/dev/tty", "w", stdout);
+    fclose(output);
+
+    FILE *result = fopen("output_processCsv_accepts_different_equal_or_greater_less_than_operators.txt", "r");
+    if (!result) {
+        CU_FAIL("Failed to open output file");
+        return;
+    }
+
+    char buffer[1024];
+    fgets(buffer, sizeof(buffer), result);
+    CU_ASSERT_STRING_EQUAL(buffer, "header1,header2,header3\n");
+
+    fgets(buffer, sizeof(buffer), result);
+    CU_ASSERT_STRING_EQUAL(buffer, "4,5,6\n");
+
+    fclose(result);
+}
+
 int main() {
     CU_pSuite pSuite = NULL;
 
@@ -231,7 +263,8 @@ int main() {
         (NULL == CU_add_test(pSuite, "Teste ignorando aspas", test_processCsv_ignore_quotes)) ||
         (NULL == CU_add_test(pSuite, "Teste de seleção de colunas em ordem arbitrária", test_processCsv_selectedColumns_arbitrary_order)) ||
         (NULL == CU_add_test(pSuite, "Teste de seleção de filtros em ordem arbitrária", test_processCsv_selectedFilters_arbitrary_order)) ||
-        (NULL == CU_add_test(pSuite, "Teste de aceitação de mais de um filtro por coluna", test_processCsv_accepts_more_than_one_filter_per_column))) {
+        (NULL == CU_add_test(pSuite, "Teste de aceitação de mais de um filtro por coluna", test_processCsv_accepts_more_than_one_filter_per_column)) ||
+        (NULL == CU_add_test(pSuite, "Teste de aceitação de operadores !=, >= e <=", test_processCsv_accepts_different_equal_or_greater_less_than_operators))) {
         CU_cleanup_registry();
         return CU_get_error();
     }
